@@ -1,0 +1,44 @@
+<!doctype html><html lang="zh"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>🔒 需要密码</title>
+<style>body{font-family:system-ui;display:grid;place-items:center;min-height:100vh;margin:0;background:#f6f6f6}
+form{background:#fff;padding:2rem 2.5rem;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.08);text-align:center}
+h2{margin:.2rem 0 1rem;font-size:1.1rem}input{padding:.5rem .7rem;border:1px solid #ccc;border-radius:6px;font-size:1rem;width:12rem}
+button{padding:.5rem 1.2rem;margin-left:.4rem;border:0;border-radius:6px;background:#0a7cff;color:#fff;font-size:1rem;cursor:pointer}
+.e{color:#c00;font-size:.9rem;min-height:1.2em}</style>
+<!-- netlify-deploy crypt v1 -->
+<div id="gate"><form id="f"><h2>🔒 此内容已加密，请输入密码</h2><p class="e" id="e"></p>
+<input id="pw" type="password" placeholder="密码" autofocus><button>解密查看</button></form></div>
+<script type="application/base64" id="payload">8j5N/wJHc1axbLjC6OT5kjhhihrlQQC1+pWm2qJEqklqhP6WqG1shcv1Iwl2JQrp0wfTon7YqjObJWmSEhFIC0nDBVr8ZTEG/UL7DBgO/Y10NMV4vSyJRs1kceLPxGUvzfvCKL3F8l4OwMI97TgPIQ==</script>
+<script>
+"use strict";
+const ITER=600000;
+const cat=(...as)=>{let n=0;for(const a of as)n+=a.length;const o=new Uint8Array(n);let i=0;for(const a of as){o.set(a,i);i+=a.length}return o};
+const toHex=b=>Array.from(b).map(x=>x.toString(16).padStart(2,"0")).join("");
+async function decryptWith(pw){
+  const raw=Uint8Array.from(atob(document.getElementById("payload").textContent.trim()),c=>c.charCodeAt(0));
+  if(raw.length<64) throw new Error("payload 截断");
+  const salt=raw.slice(0,16),iv=raw.slice(16,32),ct=raw.slice(32,raw.length-32),mac=raw.slice(raw.length-32);
+  const base=await crypto.subtle.importKey("raw",new TextEncoder().encode(pw),"PBKDF2",false,["deriveBits"]);
+  const encRaw=new Uint8Array(await crypto.subtle.deriveBits({name:"PBKDF2",hash:"SHA-256",salt,iterations:ITER},base,256));
+  const mkRaw=await crypto.subtle.digest("SHA-256",cat(encRaw,Uint8Array.of(1)));
+  const mk=await crypto.subtle.importKey("raw",mkRaw,{name:"HMAC",hash:"SHA-256"},false,["sign"]);
+  const calc=new Uint8Array(await crypto.subtle.sign("HMAC",mk,cat(salt,iv,ct)));
+  if(toHex(calc)!==toHex(mac)) throw new Error("bad-passphrase");
+  const key=await crypto.subtle.importKey("raw",encRaw,"AES-CBC",false,["decrypt"]);
+  const plain=await crypto.subtle.decrypt({name:"AES-CBC",iv},key,ct);
+  // 严格 UTF-8：非法字节直接报错，绝不静默替换成 U+FFFD
+  const dec=new TextDecoder("utf-8",{fatal:true});
+  try { return dec.decode(plain); } catch(e) { throw new Error("bad-encoding"); }
+}
+document.getElementById("f").addEventListener("submit",async(e)=>{
+  e.preventDefault();
+  const err=document.getElementById("e");
+  try{
+    const html=await decryptWith(document.getElementById("pw").value);
+    document.open();document.write(html);document.close();
+  }catch(ex){
+    err.textContent = ex && ex.message === "bad-encoding" ? "内容编码异常（非 UTF-8），请联系发布者" : "密码不对，再试一次";
+  }
+});
+</script>
